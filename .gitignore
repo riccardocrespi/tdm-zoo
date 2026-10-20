@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+.DS_Store
+
+# experiment outputs (commit curated summaries explicitly if needed)
+results/*
+!results/.gitkeep
