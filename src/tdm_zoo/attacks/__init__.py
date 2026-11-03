@@ -13,6 +13,8 @@ Add an attack as one module that subclasses :class:`Distinguisher` and registers
 itself with ``@DISTINGUISHERS.register("<name>")``.
 """
 
+from . import peeling
 from .base import DISTINGUISHERS, Decision, Distinguisher
+from .peeling import PeelingMacaulay
 
-__all__ = ["DISTINGUISHERS", "Decision", "Distinguisher"]
+__all__ = ["DISTINGUISHERS", "Decision", "Distinguisher", "PeelingMacaulay", "peeling"]

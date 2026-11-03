@@ -61,16 +61,29 @@ def _upper_toeplitz_shift_reverse_map(field: Field, k: int, offset: int, nparams
     return LinearMatrixMap(field, (k, k), nparams, offset + k - (j - i), i, j, 1)
 
 
-def gohberg_semencul_map(field: Field, k: int, left: Array | None = None) -> ProductSumMatrixMap:
-    """``g_T`` (optionally premultiplied by a constant matrix ``left``) on parameters ``(x, z)``."""
-    n = 2 * k
+def gohberg_semencul_map(
+    field: Field, k: int, left: Array | None = None, homogenize: bool = False
+) -> ProductSumMatrixMap:
+    """``g_T`` (optionally premultiplied by a constant matrix ``left``) on parameters ``(x, z)``.
+
+    With ``homogenize=True`` a third parameter block ``t`` (one scalar, last) turns
+    the degree-1 term ``L(x)`` into ``t L(x)``, giving a map that is homogeneous of
+    degree 2 in ``(x, z, t)``; the witness then has ``t = 1``.
+    """
+    n = 2 * k + (1 if homogenize else 0)
     lx, lz = _lower_toeplitz_map(field, k, 0, n), _lower_toeplitz_map(field, k, k, n)
     ux, uz = (
         _upper_toeplitz_shift_reverse_map(field, k, 0, n),
         _upper_toeplitz_shift_reverse_map(field, k, k, n),
     )
     prefix = [] if left is None else [ConstantMatrixMap(field, left, n)]
-    return ProductSumMatrixMap(field, [(1, prefix + [lz, ux]), (-1, prefix + [lx, uz]), (1, prefix + [lx])])
+    if homogenize:
+        diag = np.arange(k)
+        t_identity = LinearMatrixMap(field, (k, k), n, np.full(k, 2 * k), diag, diag, 1)
+        last = (1, prefix + [t_identity, lx])
+    else:
+        last = (1, prefix + [lx])
+    return ProductSumMatrixMap(field, [(1, prefix + [lz, ux]), (-1, prefix + [lx, uz]), last])
 
 
 def gohberg_semencul_witness(field: Field, toeplitz: Array) -> Array:
@@ -128,6 +141,12 @@ class ToeplitzFamily(SecretFamily):
     def inverse_params(self, params) -> Array:
         return gohberg_semencul_witness(self.field, self.matrix(params))
 
+    def _homogeneous_inverse_map(self) -> MatrixMap | None:
+        return gohberg_semencul_map(self.field, self.shape[0], homogenize=True) if self.invertible else None
+
+    def homogeneous_inverse_params(self, params) -> Array:
+        return np.concatenate([self.inverse_params(params), [1]]).astype(np.int64)
+
 
 @SECRET_FAMILIES.register("hankel")
 class HankelFamily(SecretFamily):
@@ -167,6 +186,15 @@ class HankelFamily(SecretFamily):
     def inverse_params(self, params) -> Array:
         toeplitz = self.matrix(params)[:, ::-1]  # H J
         return gohberg_semencul_witness(self.field, toeplitz)
+
+    def _homogeneous_inverse_map(self) -> MatrixMap | None:
+        if not self.invertible:
+            return None
+        k = self.shape[0]
+        return gohberg_semencul_map(self.field, k, left=self.field.eye(k)[::-1], homogenize=True)
+
+    def homogeneous_inverse_params(self, params) -> Array:
+        return np.concatenate([self.inverse_params(params), [1]]).astype(np.int64)
 
 
 @SECRET_FAMILIES.register("circulant")

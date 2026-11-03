@@ -1,10 +1,11 @@
-"""FLINT backend (python-flint ``nmod_mat``): exact, C-speed linear algebra modulo p."""
+"""FLINT backend (python-flint ``nmod_mat``) for elimination; products use exact numpy BLAS."""
 
 from __future__ import annotations
 
 import flint
 import numpy as np
 
+from .. import modp
 from .base import PrimeBackend
 
 
@@ -22,11 +23,8 @@ class FlintBackend(PrimeBackend):
     name = "flint"
 
     def matmul(self, left: np.ndarray, right: np.ndarray, p: int) -> np.ndarray:
-        if left.shape[1] != right.shape[0]:
-            raise ValueError(f"incompatible shapes {left.shape} and {right.shape}")
-        if 0 in left.shape or 0 in right.shape:
-            return np.zeros((left.shape[0], right.shape[1]), dtype=np.int64)
-        return from_flint(to_flint(left, p) * to_flint(right, p))
+        # Exact float64-BLAS products beat FLINT once numpy<->FLINT conversion is counted.
+        return modp.matmul(left, right, p)
 
     def rref(self, matrix: np.ndarray, p: int) -> tuple[np.ndarray, tuple[int, ...]]:
         if 0 in matrix.shape:

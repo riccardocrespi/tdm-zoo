@@ -66,6 +66,19 @@ class SecretFamily(ABC):
     def inverse_params(self, params) -> Array:
         raise NotImplementedError(f"{self.name} has no inverse parametrisation")
 
+    def _homogeneous_inverse_map(self) -> MatrixMap | None:
+        """A map whose entries are homogeneous of one degree and whose image contains every inverse.
+
+        Linear inverse maps already qualify; families whose ``g`` is not
+        homogeneous override this (and :meth:`homogeneous_inverse_params`).
+        """
+        g = self.inverse_map
+        return g if g is not None and g.degree == 1 else None
+
+    def homogeneous_inverse_params(self, params) -> Array:
+        """Witness for :attr:`homogeneous_inverse_map`."""
+        return self.inverse_params(params)
+
     def options(self) -> dict:
         """Constructor options beyond the field, for logging and reconstruction."""
         return {}
@@ -78,6 +91,10 @@ class SecretFamily(ABC):
     @cached_property
     def inverse_map(self) -> MatrixMap | None:
         return self._inverse_map()
+
+    @cached_property
+    def homogeneous_inverse_map(self) -> MatrixMap | None:
+        return self._homogeneous_inverse_map()
 
     @property
     def is_square(self) -> bool:

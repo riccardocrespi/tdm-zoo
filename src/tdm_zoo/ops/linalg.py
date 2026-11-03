@@ -18,6 +18,18 @@ def matmul(field: Field, left: Array, right: Array) -> Array:
     return field.matmul(left, right)
 
 
+def batched_matmul(field: Field, left: Array, right: Array) -> Array:
+    """Broadcasting product of stacks of small matrices: ``(..., n, m) @ (..., m, k)``."""
+    left, right = np.asarray(left, dtype=np.int64), np.asarray(right, dtype=np.int64)
+    if left.shape[-1] != right.shape[-2]:
+        raise ValueError(f"incompatible shapes {left.shape} and {right.shape}")
+    out = None
+    for t in range(left.shape[-1]):
+        term = field.mul(left[..., :, t, None], right[..., None, t, :])
+        out = term if out is None else field.add(out, term)
+    return out
+
+
 def rref(field: Field, matrix: Array) -> tuple[Array, tuple[int, ...]]:
     """Reduced row echelon form and the tuple of pivot columns."""
     matrix = np.asarray(matrix, dtype=np.int64)

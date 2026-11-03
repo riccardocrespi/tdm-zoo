@@ -31,7 +31,7 @@ CASES = [
 
 
 def test_registry():
-    assert set(CANDIDATES.names()) == {"fft_style", "raa", "luof", "layered"}
+    assert set(CANDIDATES.names()) == {"fft_style", "raa", "luof", "layered", "layered_tdm"}
 
 
 @pytest.mark.parametrize("name,kwargs", CASES, ids=lambda v: str(v))

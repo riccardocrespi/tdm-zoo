@@ -21,7 +21,7 @@ The package is organised in layers; each layer depends only on the layers below 
 | 1 | `tdm_zoo.fields` | field-agnostic `Field` interface, `PrimeField` (F_p), `ExtensionField` (F_{p^m}) |
 | 2 | `tdm_zoo.ops` | `linalg` (rank, rref, kernels, inverses), fast `LinearOperator`s, symbolic `MatrixMap`s, sparse polynomials |
 | 3 | `tdm_zoo.tdm` | secret families, public layers, DI14 codes, `LayeredProduct`, named candidates |
-| 4 | `tdm_zoo.attacks` | `Distinguisher` interface (attacks to be added) |
+| 4 | `tdm_zoo.attacks` | `Distinguisher` interface; `peeling` (Macaulay-form peeling attack) |
 | – | `tdm_zoo.experiments` | paired structured/uniform trials, advantage estimates, JSONL results |
 
 ### Candidates (`tdm_zoo.tdm.candidates`)
@@ -32,6 +32,7 @@ The package is organised in layers; each layer depends only on the layers below 
 | `raa` | `Dᵀ Π_{ℓ+1} S_ℓ Π_ℓ ··· S_1 Π_1 D` with weighted accumulators; `view="diagonal"` absorbs `C_n` into the publics so that the secrets are diagonal; option for secret permutations |
 | `luof` | layers `S_i = Ext · H_i · Enc` from Druk–Ishai (encoder first, then the secret block-diagonal `H_i`, then the extractor); `view="split"` (secrets `H_i`, publics `A_i = Enc Π_i Ext`) or `"composite"`; `codes="di14"` (faithful structure) or `"random"` |
 | `layered` | any registered square family per layer, with `permutation` / `random` / `random_invertible` / `identity` publics |
+| `layered_tdm` | `A_1 S_1 ··· S_ℓ A_{ℓ+1}` with random invertible public `A_i`; `base_family` for `S_1, S_2`, `peel_family` for `S_3..S_ℓ` (needs a homogeneous inverse map); target of the peeling attack |
 
 ### Secret families (`tdm_zoo.tdm.families`)
 
@@ -51,6 +52,35 @@ Each family exposes three consistent views:
    circulant and diagonal-type families use `g = f`.
 
 The generic rank attack only needs view 3 together with the revealed public matrices.
+
+## Peeling attack (`tdm_zoo.attacks.peeling`)
+
+For `M = A_1 S_1 ··· S_ℓ A_{ℓ+1}` (candidate `layered_tdm`):
+
+1. **Base relations** (`relations.py`): a basis `Q_1..Q_K` of the degree-`d` polynomials in the
+   `n²` matrix entries that vanish on `F(X_1, X_2) = A_1 f_1(X_1) A_2 f_2(X_2) A_3`. This is the
+   kernel of a monomial evaluation matrix at random points, re-verified on fresh points.
+2. **Peeling system** (`system.py`): candidate layers `S_j(W_j) = A_{j+1}⁻¹ g_j(W_j)` for
+   `j = ℓ..3`, and `p_i(W) = Q_i(vec(M · S_ℓ(W_ℓ) ··· S_3(W_3)))`. `g_j` is the family's
+   `homogeneous_inverse_map`: linear for diagonal, block-diagonal, circulant, accumulator and
+   dense families, and degree-2 homogenised Gohberg–Semencul for Toeplitz/Hankel (extra
+   variable `t`, with `t = 1` at the witness). The coefficients of the `p_i` come from
+   evaluating on a tensor grid and interpolating with per-block inverse Vandermonde matrices.
+3. **Macaulay matrix** (`macaulay.py`): rows are `m · p_i` for multiplier monomials `m` of
+   multidegree `a`; columns are the monomials of multidegree `d·e + a` (block `W_ℓ` most
+   significant). `PeelingSystem.witness_vector` gives `v*` with `T(M) v* = 0`.
+4. **Distinguisher** (`peeling_macaulay`): outputs "structured" iff `rank T(M) < rank T(U)`.
+
+```python
+from tdm_zoo.attacks import PeelingMacaulay
+from tdm_zoo.experiments import run_paired
+cand = make_candidate("layered_tdm", GF(2**31 - 1), k=4, ell=4)
+run_paired(cand, PeelingMacaulay(d=3, multipliers=0), trials=5, seed=0).summary()
+```
+
+Dense matrices are capped by `max_entries` (default 2·10⁸). Use a large prime: the base
+relations and the rank test are correct with high probability only over large fields
+(Schwartz–Zippel).
 
 ## Conventions
 
