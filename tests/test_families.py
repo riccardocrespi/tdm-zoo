@@ -18,8 +18,6 @@ FAMILY_CASES = [
     ("diagonal", (6,), {"nonzero": False}),
     ("block_diagonal", (6, 3), {}),
     ("block_diagonal", (6, 2), {"invertible": False}),
-    ("dense", (5,), {"invertible": True}),
-    ("dense", (4, 6), {}),
     ("weighted_accumulator", (7,), {}),
     ("toeplitz", (6,), {}),
     ("toeplitz", (4, 7), {}),

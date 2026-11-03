@@ -36,7 +36,7 @@ The package is organised in layers; each layer depends only on the layers below 
 
 ### Secret families (`tdm_zoo.tdm.families`)
 
-`diagonal`, `block_diagonal`, `dense`, `weighted_accumulator`, `toeplitz`, `hankel`,
+`diagonal`, `block_diagonal`, `weighted_accumulator`, `toeplitz`, `hankel`,
 `circulant`, `quasi_cyclic`, plus `SandwichFamily` (`L·S·R` with fixed `L`, `R`).
 
 Each family exposes three consistent views:
@@ -62,8 +62,8 @@ For `M = A_1 S_1 ··· S_ℓ A_{ℓ+1}` (candidate `layered_tdm`):
    kernel of a monomial evaluation matrix at random points, re-verified on fresh points.
 2. **Peeling system** (`system.py`): candidate layers `S_j(W_j) = A_{j+1}⁻¹ g_j(W_j)` for
    `j = ℓ..3`, and `p_i(W) = Q_i(vec(M · S_ℓ(W_ℓ) ··· S_3(W_3)))`. `g_j` is the family's
-   `homogeneous_inverse_map`: linear for diagonal, block-diagonal, circulant, accumulator and
-   dense families, and degree-2 homogenised Gohberg–Semencul for Toeplitz/Hankel (extra
+   `homogeneous_inverse_map`: linear for diagonal, block-diagonal, circulant, and accumulator families,
+   and degree-2 homogenised Gohberg–Semencul for Toeplitz/Hankel (extra
    variable `t`, with `t = 1` at the witness). The coefficients of the `p_i` come from
    evaluating on a tensor grid and interpolating with per-block inverse Vandermonde matrices.
 3. **Macaulay matrix** (`macaulay.py`): rows are `m · p_i` for multiplier monomials `m` of

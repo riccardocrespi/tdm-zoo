@@ -1,4 +1,4 @@
-"""Diagonal, block-diagonal, dense and weighted-accumulator secret families."""
+"""Diagonal, block-diagonal and weighted-accumulator secret families."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import numpy as np
 from ...fields import Field
 from ...ops import linalg
 from ...ops.matrix_maps import LinearMatrixMap, MatrixMap
-from ...ops.operators import DenseOperator, DiagonalOperator, LinearOperator
+from ...ops.operators import DiagonalOperator, LinearOperator
 from ...ops.structured import AccumulatorOperator, BlockDiagonalOperator
 from .base import SECRET_FAMILIES, SecretFamily
 
@@ -105,45 +105,6 @@ class BlockDiagonalFamily(SecretFamily):
 
     def inverse_params(self, params) -> Array:
         return np.stack([linalg.inv(self.field, block) for block in self._blocks(params)]).reshape(-1)
-
-
-@SECRET_FAMILIES.register("dense")
-class DenseFamily(SecretFamily):
-    """Unstructured secret (baseline): every entry is a parameter."""
-
-    def __init__(self, field: Field, rows: int, cols: int | None = None, invertible: bool = False) -> None:
-        cols = rows if cols is None else cols
-        if invertible and rows != cols:
-            raise ValueError("only square secrets can be invertible")
-        super().__init__(field, rows, cols)
-        self.invertible = invertible
-
-    @property
-    def nparams(self) -> int:
-        return self.shape[0] * self.shape[1]
-
-    def options(self) -> dict:
-        return {"rows": self.shape[0], "cols": self.shape[1], "invertible": self.invertible}
-
-    def sample_params(self, rng):
-        draw = lambda g: self.field.random(g, self.nparams)  # noqa: E731
-        if not self.invertible:
-            return draw(rng)
-        return self._rejection_sample(rng, draw, self._is_invertible)
-
-    def operator(self, params) -> LinearOperator:
-        return DenseOperator(self.field, np.asarray(params).reshape(self.shape))
-
-    def _param_map(self) -> MatrixMap:
-        rows, cols = self.shape
-        r, c = np.divmod(np.arange(self.nparams), cols)
-        return LinearMatrixMap(self.field, self.shape, self.nparams, np.arange(self.nparams), r, c, 1)
-
-    def _inverse_map(self) -> MatrixMap | None:
-        return self.param_map if self.invertible else None
-
-    def inverse_params(self, params) -> Array:
-        return linalg.inv(self.field, np.asarray(params).reshape(self.shape)).reshape(-1)
 
 
 @SECRET_FAMILIES.register("weighted_accumulator")

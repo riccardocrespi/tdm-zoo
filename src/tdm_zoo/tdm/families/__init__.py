@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...fields import Field
 from .base import SECRET_FAMILIES, SecretFamily, SecretSample
-from .elementary import BlockDiagonalFamily, DenseFamily, DiagonalFamily, WeightedAccumulatorFamily
+from .elementary import BlockDiagonalFamily, DiagonalFamily, WeightedAccumulatorFamily
 from .fft import (
     CirculantFamily,
     HankelFamily,
@@ -25,7 +25,6 @@ __all__ = [
     "SECRET_FAMILIES",
     "BlockDiagonalFamily",
     "CirculantFamily",
-    "DenseFamily",
     "DiagonalFamily",
     "HankelFamily",
     "QuasiCyclicFamily",

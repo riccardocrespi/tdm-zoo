@@ -98,12 +98,7 @@ class LayeredTDM(Layered):
             if ell < 3:
                 raise ValueError("the layered TDM needs ell >= 3")
             families = [base_family] * 2 + [peel_family] * (ell - 2)
-        normalised = []
-        for spec in families:
-            name, kwargs = _normalise(spec)
-            if name == "dense":
-                kwargs.setdefault("invertible", True)
-            normalised.append((name, kwargs))
+        normalised = [_normalise(spec) for spec in families]
         super().__init__(field, k, normalised, publics="random_invertible", outer="random_invertible")
         if self.ell < 3:
             raise ValueError("the layered TDM needs ell >= 3")
