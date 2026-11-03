@@ -24,11 +24,23 @@ import numpy as np
 
 from ...fields import Field
 from ...ops import linalg
+from ...ops.blackbox import wiedemann_rank
 from ...ops.matrix_maps import MatrixMap
 from ...ops.multihomogeneous import ProductBasis
 from ...tdm.product import PublicView, TDMSample
-from .macaulay import DEFAULT_MAX_ENTRIES, MacaulayShape, macaulay_matrix, macaulay_shape
+from .macaulay import (
+    DEFAULT_MAX_DENSE_ENTRIES,
+    DEFAULT_MAX_NONZEROS,
+    MacaulayOperator,
+    MacaulayShape,
+    macaulay_matrix,
+    macaulay_shape,
+    macaulay_sparse,
+)
 from .relations import BaseRelations, base_relations
+
+RANK_METHODS = ("auto", "dense", "wiedemann")
+FORMS = ("dense", "sparse", "operator")
 
 Array = np.ndarray
 
@@ -144,9 +156,55 @@ class PeelingSystem:
             tensor = np.moveaxis(flat.reshape(moved.shape), 0, axis)
         return np.moveaxis(tensor, -1, 0).reshape(self.relation_count, -1)
 
-    def macaulay(self, matrix: Array, multipliers=0, max_entries: int = DEFAULT_MAX_ENTRIES) -> Array:
-        """``T(M)`` at multiplier multidegree ``multipliers`` (int = same for every block)."""
-        return macaulay_matrix(self.field, self.compose(matrix), self.shape(multipliers), max_entries)
+    def macaulay(
+        self,
+        matrix: Array,
+        multipliers=0,
+        form: str = "dense",
+        limit: int | None = None,
+        device: str | None = None,
+    ):
+        """``T(M)`` at multiplier multidegree ``multipliers`` (an int means the same for every block).
+
+        ``form="dense"``: numpy array, ``limit`` bounds ``rows x cols``;
+        ``form="sparse"``: :class:`SparseOperator` (coordinates), ``limit`` bounds the nonzeros;
+        ``form="operator"``: implicit :class:`MacaulayOperator` (coefficients + column table only);
+        ``device`` (e.g. ``"cuda"``) runs its products with torch on that device.
+        """
+        shape, coefficients = self.shape(multipliers), self.compose(matrix)
+        if form == "dense":
+            return macaulay_matrix(self.field, coefficients, shape, limit or DEFAULT_MAX_DENSE_ENTRIES)
+        if form == "sparse":
+            return macaulay_sparse(self.field, coefficients, shape, limit or DEFAULT_MAX_NONZEROS)
+        if form == "operator":
+            return MacaulayOperator(self.field, coefficients, shape, device)
+        raise ValueError(f"form must be one of {FORMS}")
+
+    def macaulay_rank(
+        self,
+        matrix: Array,
+        multipliers=0,
+        method: str = "auto",
+        rng: np.random.Generator | None = None,
+        dense_limit: int = 5 * 10**7,
+        repeats: int = 1,
+        device: str | None = None,
+    ) -> int:
+        """Rank of ``T(M)``.
+
+        ``dense``: exact elimination (FLINT) on the dense matrix. ``wiedemann``:
+        black-box rank on the implicit operator (no fill-in; a lower bound that is
+        exact with high probability; ``repeats`` independent runs, maximum taken).
+        ``auto``: dense when ``rows x cols <= dense_limit``, Wiedemann otherwise.
+        ``device`` selects torch (e.g. ``"cuda"``) for the Wiedemann products.
+        """
+        if method not in RANK_METHODS:
+            raise ValueError(f"method must be one of {RANK_METHODS}")
+        shape = self.shape(multipliers)
+        if method == "dense" or (method == "auto" and shape.entries <= dense_limit):
+            return linalg.rank(self.field, self.macaulay(matrix, multipliers, "dense"))
+        operator = self.macaulay(matrix, multipliers, "operator", device=device)
+        return wiedemann_rank(self.field, operator, rng or np.random.default_rng(), repeats=repeats)
 
     # -- witnesses (need the trapdoor; for tests and analysis only) ---------------------
     def witness(self, sample: TDMSample) -> list[Array]:

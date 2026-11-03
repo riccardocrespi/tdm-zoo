@@ -68,8 +68,24 @@ For `M = A_1 S_1 ··· S_ℓ A_{ℓ+1}` (candidate `layered_tdm`):
    evaluating on a tensor grid and interpolating with per-block inverse Vandermonde matrices.
 3. **Macaulay matrix** (`macaulay.py`): rows are `m · p_i` for multiplier monomials `m` of
    multidegree `a`; columns are the monomials of multidegree `d·e + a` (block `W_ℓ` most
-   significant). `PeelingSystem.witness_vector` gives `v*` with `T(M) v* = 0`.
-4. **Distinguisher** (`peeling_macaulay`): outputs "structured" iff `rank T(M) < rank T(U)`.
+   significant). `PeelingSystem.witness_vector` gives `v*` with `T(M) v* = 0`. Three forms
+   (`system.macaulay(M, a, form=...)`):
+   - `"dense"`: a numpy array; the guard counts `rows × cols`, which is what a dense array really costs.
+   - `"sparse"`: coordinate storage of the nonzeros only; the guard counts nonzeros
+     (`K_nz · |mult|`, about `|base|/C` of the cells).
+   - `"operator"`: implicit; it stores only the `K × |base|` coefficients and a `|mult| × |base|`
+     column table. `T x` is a gather plus a BLAS product, `Tᵀ y` a product plus a scatter-add;
+     `device="cuda"` runs both with torch. Example: at `n = 3, ℓ = 5, a = (4,4,4)` the matrix
+     is 219375 × 46656 with 1.5·10⁸ nonzeros, and the whole process uses about 0.25 GB.
+4. **Rank** (`system.macaulay_rank`): `"dense"` is exact FLINT elimination. `"wiedemann"` is
+   black-box Wiedemann (`ops/blackbox.py`): it applies only `T` and `Tᵀ` to vectors, so there
+   is no fill-in. The preconditioner is `D₁TᵀD₂TD₁` and Berlekamp–Massey is FLINT's; the result
+   is exact with high probability and can only under-estimate, and `repeats` takes the maximum
+   over runs. `"auto"` (default) is dense up to `dense_limit` cells (5·10⁷), Wiedemann above.
+   Cost is about `2·rank` steps of `T`+`Tᵀ`. For `(4,4,4)` that is ~80 ms per step on the GPU
+   (~0.3 s on the CPU), so about 2 h per full-rank computation on an RTX 3050.
+5. **Distinguisher** (`peeling_macaulay`): outputs "structured" iff `rank T(M) < rank T(U)`.
+   It accepts `rank_method`, `dense_limit`, `repeats` and `device`.
 
 ```python
 from tdm_zoo.attacks import PeelingMacaulay
@@ -78,9 +94,8 @@ cand = make_candidate("layered_tdm", GF(2**31 - 1), k=4, ell=4)
 run_paired(cand, PeelingMacaulay(d=3, multipliers=0), trials=5, seed=0).summary()
 ```
 
-Dense matrices are capped by `max_entries` (default 2·10⁸). Use a large prime: the base
-relations and the rank test are correct with high probability only over large fields
-(Schwartz–Zippel).
+Use a large prime (e.g. `2**31 - 1`): the base relations, the rank test and Wiedemann are
+correct with high probability only over large fields (Schwartz–Zippel).
 
 ## Conventions
 

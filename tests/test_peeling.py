@@ -9,6 +9,8 @@ from tdm_zoo.ops import linalg
 from tdm_zoo.ops.multihomogeneous import BlockBasis, ProductBasis
 from tdm_zoo.tdm.families import HankelFamily, ToeplitzFamily
 
+from .conftest import torch_cuda_available
+
 FIELD = GF(2**31 - 1)
 
 
@@ -127,7 +129,7 @@ def test_macaulay_rows_are_multiples(rng):
 def test_macaulay_size_guard():
     rng, product, system = _setup(3, 4)
     with pytest.raises(MemoryError):
-        system.macaulay(product.sample_uniform(rng), 2, max_entries=1000)
+        system.macaulay(product.sample_uniform(rng), 2, limit=1000)
 
 
 def test_extension_field_witness():
@@ -152,4 +154,56 @@ def test_distinguisher_registered_and_wins_small_case():
 def test_distinguisher_four_layers_control():
     candidate = make_candidate("layered_tdm", FIELD, k=4, ell=4)
     result = run_paired(candidate, PeelingMacaulay(d=3, reference="cached", seed=1), trials=2, seed=2)
+    assert result.advantage == 1.0
+
+
+# --- sparse / implicit forms and black-box rank --------------------------------------------------
+@pytest.mark.parametrize("n,ell,multipliers", [(3, 3, 1), (3, 4, (1, 0)), (3, 4, 1)])
+def test_macaulay_forms_agree(n, ell, multipliers):
+    rng, product, system = _setup(n, ell, seed=4)
+    matrix_in = product.sample(rng).matrix
+    dense = system.macaulay(matrix_in, multipliers, "dense")
+    sparse = system.macaulay(matrix_in, multipliers, "sparse")
+    implicit = system.macaulay(matrix_in, multipliers, "operator")
+    assert np.array_equal(sparse.to_dense(), dense)
+    assert sparse.nonzeros == implicit.nonzeros == np.count_nonzero(dense)
+    x, y = FIELD.random(rng, (dense.shape[1], 2)), FIELD.random(rng, (dense.shape[0], 2))
+    assert np.array_equal(implicit.apply(x), FIELD.matmul(dense, x))
+    assert np.array_equal(implicit.apply_T(y), FIELD.matmul(dense.T, y))
+
+
+def test_guards_count_nonzeros_for_sparse_and_cells_for_dense():
+    rng, product, system = _setup(3, 4)
+    matrix_in = product.sample_uniform(rng)
+    count = system.macaulay(matrix_in, 1, "operator").nonzeros
+    assert count < system.shape(1).entries
+    assert system.macaulay(matrix_in, 1, "sparse", limit=count).nonzeros == count
+    with pytest.raises(MemoryError):
+        system.macaulay(matrix_in, 1, "sparse", limit=count - 1)
+    with pytest.raises(MemoryError):
+        system.macaulay(matrix_in, 1, "dense", limit=count)  # fits as sparse, not as dense
+
+
+@pytest.mark.parametrize("n,ell,multipliers", [(3, 3, 0), (4, 4, 0), (3, 4, 1)])
+def test_wiedemann_rank_matches_dense(n, ell, multipliers):
+    rng, product, system = _setup(n, ell, seed=6)
+    for matrix_in in (product.sample(rng).matrix, product.sample_uniform(rng)):
+        exact = system.macaulay_rank(matrix_in, multipliers, "dense")
+        assert system.macaulay_rank(matrix_in, multipliers, "wiedemann", rng) == exact
+
+
+@pytest.mark.skipif(not torch_cuda_available(), reason="needs CUDA")
+def test_cuda_operator_matches_cpu():
+    rng, product, system = _setup(3, 4, seed=7)
+    matrix_in = product.sample(rng).matrix
+    cpu = system.macaulay(matrix_in, 1, "operator")
+    gpu = system.macaulay(matrix_in, 1, "operator", device="cuda")
+    x, y = FIELD.random(rng, (cpu.cols, 2)), FIELD.random(rng, (cpu.rows, 2))
+    assert np.array_equal(cpu.apply(x), gpu.apply(x))
+    assert np.array_equal(cpu.apply_T(y), gpu.apply_T(y))
+
+
+def test_distinguisher_with_wiedemann():
+    candidate = make_candidate("layered_tdm", FIELD, k=4, ell=4)
+    result = run_paired(candidate, PeelingMacaulay(rank_method="wiedemann", seed=3), trials=2, seed=4)
     assert result.advantage == 1.0

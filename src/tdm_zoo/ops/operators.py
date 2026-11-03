@@ -264,6 +264,14 @@ class SparseOperator(LinearOperator):
         products = self.field.mul(self.values[:, None], y[self.row_index])
         return self.field.segment_sum(products, self.col_index, self.cols)
 
+    def to_dense(self) -> Array:
+        flat = self.row_index * self.cols + self.col_index
+        return self.field.segment_sum(self.values, flat, self.rows * self.cols).reshape(self.shape)
+
+    @property
+    def nonzeros(self) -> int:
+        return int(self.values.size)
+
     @property
     def cost(self) -> int:
         return 2 * int(self.values.size)

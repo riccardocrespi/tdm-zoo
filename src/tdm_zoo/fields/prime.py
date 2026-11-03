@@ -60,6 +60,15 @@ class PrimeField(Field):
 
     def segment_sum(self, values: Array, segments: Array, count: int) -> Array:
         values = np.asarray(values, dtype=np.int64)
+        segments = np.asarray(segments, dtype=np.int64)
+        if values.ndim <= 2 and values.shape[0] * (self.p - 1) < 2**53:
+            # float64 bincount is exact while every partial sum stays below 2**53
+            columns = values.reshape(values.shape[0], -1)
+            out = np.stack(
+                [np.bincount(segments, weights=col.astype(np.float64), minlength=count) for col in columns.T],
+                axis=1,
+            )
+            return np.mod(out.astype(np.int64), self.p).reshape((count,) + values.shape[1:])
         out = np.zeros((count,) + values.shape[1:], dtype=np.int64)
         np.add.at(out, np.asarray(segments, dtype=np.int64), values)
         return np.mod(out, self.p)
