@@ -32,7 +32,7 @@ The package is organised in layers; each layer depends only on the layers below 
 | `raa` | `Dᵀ Π_{ℓ+1} S_ℓ Π_ℓ ··· S_1 Π_1 D` with weighted accumulators; `view="diagonal"` absorbs `C_n` into the publics so that the secrets are diagonal; option for secret permutations |
 | `luof` | layers `S_i = Ext · H_i · Enc` from Druk–Ishai (encoder first, then the secret block-diagonal `H_i`, then the extractor); `view="split"` (secrets `H_i`, publics `A_i = Enc Π_i Ext`) or `"composite"`; `codes="di14"` (faithful structure) or `"random"` |
 | `layered` | any registered square family per layer, with `permutation` / `random` / `random_invertible` / `identity` publics |
-| `layered_tdm` | `A_1 S_1 ··· S_ℓ A_{ℓ+1}` with random invertible public `A_i`; `base_family` for `S_1, S_2`, `peel_family` for `S_3..S_ℓ` (needs a homogeneous inverse map); target of the peeling attack |
+| `layered_tdm` | `A_1 S_1 ··· S_ℓ A_{ℓ+1}` with random invertible public `A_i`; `base_family` for `S_1, S_2`, `peel_family` for `S_3..S_ℓ` (needs a homogeneous inverse map); target of the peeling attack. `publics="luof"` uses invertible Druk–Ishai members `A_i = G H_i P E` with revealed `H_i` instead, `publics="permutation"` permutations |
 
 ### Secret families (`tdm_zoo.tdm.families`)
 
