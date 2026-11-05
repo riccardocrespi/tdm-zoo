@@ -5,13 +5,18 @@ from tdm_zoo import GF, make_candidate
 from tdm_zoo.experiments.luof_structure import (
     PARAMS,
     block_bound,
+    block_pattern,
     direct_dimension,
+    distinguisher_point,
+    exact_span,
     fast_sample_count,
     fast_sampler,
     fast_span_point,
     gram_dimension,
     pattern_point,
     pattern_span,
+    phase_check_point,
+    phase_point,
     sample_count,
     span_point,
     structure_point,
@@ -24,6 +29,8 @@ from tdm_zoo.tdm.publics import luof_span_dimension
 P = 2**31 - 1
 Q = 10**9 + 7
 SPARSE = {"block_size": 1, "base_length": 12, "expander_degree": 1}  # ell = 2, 3 proper at k = 32
+HIGH_DEGREE = {"block_size": 1, "base_length": 12, "expander_degree": 12}  # saturated graphs
+TINY_PROPER = {"block_size": 1, "base_length": 12, "expander_degree": 1}  # codim 5 at k = 16
 SPARSER = {"block_size": 1, "base_length": 4, "expander_degree": 1}  # ell = 2 proper, ell = 3 full
 
 
@@ -166,9 +173,40 @@ def test_pattern_formula_is_the_sampled_span(k, ell, options):
     assert pattern_span(product) == fast_span_point(k, ell, P, **options).span
 
 
-def test_certificate_proves_full_span_and_refuses_the_proper_control():
-    assert pattern_point(32, 2, P).certified_full
-    assert not pattern_point(32, 2, P, **SPARSE).certified_full
+@pytest.mark.parametrize(
+    "k, ell, options",
+    [(16, 2, {}), (16, 2, HIGH_DEGREE), (32, 2, SPARSE), (32, 3, SPARSE), (32, 2, SPARSER)],
+)
+def test_exact_span_is_the_pattern_formula(k, ell, options):
+    product, _ = composite(k, ell, **options)
+    assert exact_span(product, block_pattern(product)) == pattern_span(product)
+
+
+def test_pattern_point_reports_full_and_proper():
+    full, proper = pattern_point(32, 2, P), pattern_point(32, 2, P, **SPARSE)
+    assert full.certified_full and full.codim == 0
+    assert not proper.certified_full and (proper.span, proper.codim) == (922, 102)
+
+
+def test_exact_span_matches_sampling_in_the_high_degree_pocket():
+    row = phase_check_point(16, 2, P, **HIGH_DEGREE)
+    assert row["agree"] and row["exact"] == 214
+
+
+def test_phase_point_records_a_degenerate_cell():
+    row = phase_point(16, 2, P, 0, 1, 1, 6)  # base_length must be a multiple of 4
+    assert "degenerate" in row and row["k"] == 16
+
+
+def test_span_test_breaks_a_proper_cell():
+    row = distinguisher_point(16, 2, P, trials=40, **TINY_PROPER)
+    assert row.relations_found == 256 - row.span == 5
+    assert row.structured_accept == 1.0 and row.uniform_accept == 0.0 and row.advantage == 1.0
+
+
+def test_span_test_has_no_advantage_on_a_full_cell():
+    row = distinguisher_point(16, 2, P, trials=20)
+    assert row.relations_found == 0 and row.advantage == 0.0
 
 
 def test_dead_blocks_are_the_systematic_rows_beyond_k():

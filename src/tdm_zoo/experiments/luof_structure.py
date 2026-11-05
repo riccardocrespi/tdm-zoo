@@ -27,8 +27,11 @@ Scaling beyond the sizes where sampling real secrets is affordable:
 
       span{M} = sum_{(b, c) in P} colspan(Ext_b) x rowspan(Enc_c).
 
-  ``certified_full`` is a proof of ``span = k^2`` for that draw of the publics: some block rows
-  ``b`` have ``{Enc_c : (b, c) in P}`` spanning ``F^k`` and their ``Ext_b`` span ``F^k`` too.
+  :func:`exact_span` evaluates this for that draw of the publics, full or proper, with no
+  sampling: a proof of the span rather than an estimate.
+* Phase diagram (:func:`phase_point`): the same over ``(Delta, degree, base_length)``.
+* Distinguisher (:func:`distinguisher_point`): on a proper cell, the advantage of
+  :class:`~tdm_zoo.attacks.LinearSpan` under :func:`~.harness.run_paired`.
 
 ``dim V`` depends on the sampled codes (the graphs are random), so it varies with the seed.
 The codes come first out of the generator in both :func:`subspace_point` and :func:`span_point`,
@@ -43,11 +46,13 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 
 from ..arith.backends.flint_backend import rows_to_flint
+from ..attacks import LinearSpan
 from ..fields import GF
 from ..ops import linalg
 from ..tdm import make_candidate
 from ..tdm.di14 import DI14Params, LUOFCodes, di14_dimension, sample_luof_codes
 from ..tdm.product import LayeredProduct
+from .harness import run_paired
 
 PARAMS = DI14Params(8, 6, 4)
 DIRECT_MAX_K = 128  # beyond this the k^2-wide generator matrix no longer fits; use the Gram rank
@@ -125,10 +130,36 @@ class PatternRow:
     blocks: int
     live_blocks: int  # Ext_b != 0 and Enc_b != 0; the others never reach M
     dead_pairs: int  # live (b, c) outside the pattern P
-    certified_full: bool
+    certified_full: bool  # span == k^2, exactly
     seconds: float
     options: dict = field(default_factory=dict)
+    span: int | None = None
+    codim: int | None = None
+    rank_M: int | None = None  # generic rank: one sample attains it except with probability ~ k / p
     experiment: str = "pattern"
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class DistinguisherRow:
+    k: int
+    ell: int
+    prime: int
+    seed: int
+    options: dict
+    span: int  # from the block pattern, for the same publics
+    relations_found: int  # from the distinguisher's own samples
+    rank_M: int  # of one structured sample: below k, M is singular and rank alone distinguishes
+    trials: int
+    structured_accept: float
+    uniform_accept: float
+    advantage: float
+    advantage_ci95: tuple
+    seconds: float
+    relations: list = field(default_factory=list)  # the first few, to keep
+    experiment: str = "distinguisher"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -375,26 +406,52 @@ def pattern_span(product: LayeredProduct) -> int:
     return linalg.rank(field_, np.stack(rows))
 
 
-def certify_full(product: LayeredProduct, pattern: np.ndarray) -> bool:
-    """Proof of ``span = k^2``, see the module docstring. ``False`` proves nothing either way."""
+def exact_span(product: LayeredProduct, pattern: np.ndarray) -> int:
+    """``dim span{M}`` from the formula in the module docstring, at any ``k``.
+
+    Writing ``Y_b`` for the span of ``{Enc_c : (b, c) in P}``, the span is
+    ``sum_b colspan(Ext_b) x Y_b``. The ``b`` with ``Y_b = F^k`` contribute ``W x F^k``, for ``W``
+    the span of their ``Ext_b``, so only the others need elimination, modulo ``W``.
+    """
     field_ = product.field
     ext, enc, block = _layer_codes(product)
     k = ext.shape[0]
     blocks = pattern.shape[0]
     enc_blocks = enc.reshape(blocks, block, k)
-    passing: dict[bytes, bool] = {}
-    good = []
+    ext_blocks = ext.reshape(k, blocks, block).transpose(1, 2, 0)  # (blocks, block, k): rows in F^k
+    groups: dict[bytes, list[int]] = {}
     for b in range(blocks):
-        key = pattern[b].tobytes()
-        if key not in passing:
-            passing[key] = linalg.rank(field_, enc_blocks[pattern[b]].reshape(-1, k)) == k
-        if passing[key]:
-            good.append(b)
-    columns = ext.reshape(k, blocks, block)[:, good].reshape(k, -1)
-    return linalg.rank(field_, columns) == k
+        groups.setdefault(pattern[b].tobytes(), []).append(b)
+
+    full, partial = [], {}  # partial: basis of Y -> the block rows b with that Y
+    for members in groups.values():
+        reduced, pivots = linalg.rref(field_, enc_blocks[pattern[members[0]]].reshape(-1, k))
+        if len(pivots) == k:
+            full += members
+        elif pivots:
+            basis = reduced[: len(pivots)]
+            partial.setdefault(basis.tobytes(), (basis, []))[1].extend(members)
+
+    w_rows = ext_blocks[full].reshape(-1, k)
+    w = linalg.rank(field_, w_rows)
+    if w == k:
+        return k * k
+    quotient = linalg.nullspace(field_, w_rows) if w else field_.eye(k)  # (k, k - w), kernel is W
+    rows = []
+    for basis, members in partial.values():
+        x = field_.matmul(ext_blocks[members].reshape(-1, k), quotient)
+        reduced, pivots = linalg.rref(field_, x)
+        rows += [
+            field_.mul(reduced[i][:, None], y[None, :]).ravel() for i in range(len(pivots)) for y in basis
+        ]
+    if not rows:
+        return w * k
+    return w * k + int(rows_to_flint(rows, (len(rows), rows[0].size), field_.p).rank())
 
 
-def pattern_point(k: int, ell: int, prime: int, seed: int = 0, **options) -> PatternRow:
+def pattern_point(
+    k: int, ell: int, prime: int, seed: int = 0, experiment: str = "pattern", **options
+) -> PatternRow:
     start = time.perf_counter()
     field_ = GF(prime)
     rng = np.random.default_rng(seed)
@@ -403,6 +460,8 @@ def pattern_point(k: int, ell: int, prime: int, seed: int = 0, **options) -> Pat
     blocks = enc.shape[0] // block
     live = ext.reshape(k, blocks, block).any(axis=(0, 2)) & enc.reshape(blocks, block, k).any(axis=(1, 2))
     pattern = block_pattern(product)
+    span = exact_span(product, pattern)
+    rank_m = linalg.rank(field_, fast_sampler(product)(rng))
     return PatternRow(
         k=k,
         ell=ell,
@@ -412,7 +471,80 @@ def pattern_point(k: int, ell: int, prime: int, seed: int = 0, **options) -> Pat
         blocks=blocks,
         live_blocks=int(live.sum()),
         dead_pairs=int((~pattern[np.ix_(live, live)]).sum()),
-        certified_full=certify_full(product, pattern),
+        certified_full=span == k * k,
         seconds=time.perf_counter() - start,
         options=options,
+        span=span,
+        codim=k * k - span,
+        rank_M=rank_m,
+        experiment=experiment,
+    )
+
+
+def phase_point(
+    k: int, ell: int, prime: int, seed: int, block_size: int, expander_degree: int, base_length: int
+) -> dict:
+    """One cell of the phase diagram; a parameter set the codes reject is recorded, not raised."""
+    options = {"block_size": block_size, "expander_degree": expander_degree, "base_length": base_length}
+    try:
+        return pattern_point(k, ell, prime, seed, experiment="phase", **options).to_dict()
+    except (ValueError, IndexError, ZeroDivisionError) as error:
+        return {
+            "experiment": "phase",
+            "k": k,
+            "ell": ell,
+            "prime": prime,
+            "seed": seed,
+            "options": options,
+            "degenerate": f"{type(error).__name__}: {error}",
+        }
+
+
+def phase_check_point(k: int, ell: int, prime: int, seed: int = 0, **options) -> dict:
+    """A sampled span next to the exact one, on the same publics."""
+    start = time.perf_counter()
+    sampled = fast_span_point(k, ell, prime, seed, **options).span
+    exact = pattern_point(k, ell, prime, seed, **options).span
+    return {
+        "experiment": "phase_check",
+        "k": k,
+        "ell": ell,
+        "prime": prime,
+        "seed": seed,
+        "options": options,
+        "sampled": sampled,
+        "exact": exact,
+        "agree": sampled == exact,
+        "seconds": time.perf_counter() - start,
+    }
+
+
+def distinguisher_point(
+    k: int, ell: int, prime: int, seed: int = 0, trials: int = 200, keep: int = 8, **options
+) -> DistinguisherRow:
+    """Advantage of the public-view span test; ``options`` pick the (proper) ``luof`` cell."""
+    start = time.perf_counter()
+    field_ = GF(prime)
+    candidate = make_candidate("luof", field_, k=k, ell=ell, view="composite", **options)
+    span = pattern_point(k, ell, prime, seed, **options).span  # same seed, same publics as below
+    test = LinearSpan(seed=seed + 1000)
+    result = run_paired(candidate, test, trials, seed=seed, keep_records=False)
+    rng = np.random.default_rng(seed)
+    rank_m = linalg.rank(field_, candidate.sample_product(rng).sample(rng).matrix)
+    return DistinguisherRow(
+        k=k,
+        ell=ell,
+        prime=prime,
+        seed=seed,
+        options=options,
+        span=span,
+        relations_found=test.relations.shape[0],
+        rank_M=rank_m,
+        trials=trials,
+        structured_accept=result.structured_accept_rate,
+        uniform_accept=result.uniform_accept_rate,
+        advantage=result.advantage,
+        advantage_ci95=result.advantage_ci95,
+        seconds=time.perf_counter() - start,
+        relations=test.relations[:keep].tolist(),
     )

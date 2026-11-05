@@ -15,6 +15,7 @@ itself with ``@DISTINGUISHERS.register("<name>")``.
 
 from . import peeling
 from .base import DISTINGUISHERS, Decision, Distinguisher
+from .linear_span import LinearSpan
 from .peeling import PeelingMacaulay
 
-__all__ = ["DISTINGUISHERS", "Decision", "Distinguisher", "PeelingMacaulay", "peeling"]
+__all__ = ["DISTINGUISHERS", "Decision", "Distinguisher", "LinearSpan", "PeelingMacaulay", "peeling"]
